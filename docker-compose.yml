@@ -1,0 +1,232 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.6.8
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=etcd0=http://etcd:2380
+      - --initial-cluster-token=patroni
+      - --initial-cluster-state=new
+    volumes:
+      - etcd-data:/etcd-data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/local/bin/etcdctl",
+          "--endpoints=http://127.0.0.1:2379",
+          "endpoint",
+          "health",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    ports:
+      - "2379:2379"
+
+  postgres1:
+    image: debezium-replication-test-patroni-postgres:latest
+    build:
+      context: ./postgres
+    hostname: postgres1
+    environment:
+      CLUSTER_NAME: pg-ha-demo
+      NODE_NAME: postgres1
+      ETCD_ENDPOINT: etcd:2379
+      RESTAPI_CONNECT_ADDRESS: postgres1:8008
+      POSTGRES_CONNECT_ADDRESS: postgres1:5432
+      POSTGRES_SUPERUSER_PASSWORD: postgres
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator_password
+      APP_DB: test
+      APP_USER: app_user
+      APP_PASSWORD: app_password
+      DEBEZIUM_USER: debezium
+      DEBEZIUM_PASSWORD: dbz_password
+      PUBLICATION_NAME: dbz_publication
+      REPLICATION_SLOT_NAME: dbz_users_slot
+    volumes:
+      - postgres1-data:/var/lib/postgresql/data
+      - ./postgres/scripts:/scripts:ro
+    depends_on:
+      etcd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "5433:5432"
+      - "8008:8008"
+
+  postgres2:
+    image: debezium-replication-test-patroni-postgres:latest
+    build:
+      context: ./postgres
+    hostname: postgres2
+    environment:
+      CLUSTER_NAME: pg-ha-demo
+      NODE_NAME: postgres2
+      ETCD_ENDPOINT: etcd:2379
+      RESTAPI_CONNECT_ADDRESS: postgres2:8008
+      POSTGRES_CONNECT_ADDRESS: postgres2:5432
+      POSTGRES_SUPERUSER_PASSWORD: postgres
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator_password
+      APP_DB: test
+      APP_USER: app_user
+      APP_PASSWORD: app_password
+      DEBEZIUM_USER: debezium
+      DEBEZIUM_PASSWORD: dbz_password
+      PUBLICATION_NAME: dbz_publication
+      REPLICATION_SLOT_NAME: dbz_users_slot
+    volumes:
+      - postgres2-data:/var/lib/postgresql/data
+      - ./postgres/scripts:/scripts:ro
+    depends_on:
+      etcd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "5434:5432"
+      - "8009:8008"
+
+  haproxy:
+    image: haproxy:3.2-alpine
+    depends_on:
+      postgres1:
+        condition: service_healthy
+      postgres2:
+        condition: service_healthy
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "5000:5000"
+      - "8404:8404"
+
+  pgbouncer:
+    build:
+      context: ./pgbouncer
+    depends_on:
+      - haproxy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+
+  kafka:
+    image: confluentinc/cp-kafka:8.2.0
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+
+  connect:
+    image: quay.io/debezium/connect:3.4.2.Final
+    depends_on:
+      - kafka
+      - haproxy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8083; printf \"GET /connectors HTTP/1.0\\r\\n\\r\\n\" >&3; grep -q \"200\" <&3'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    ports:
+      - "8083:8083"
+
+  connect-init:
+    image: curlimages/curl:8.7.1
+    depends_on:
+      connect:
+        condition: service_healthy
+    volumes:
+      - ./debezium/users-connector.json:/config/users-connector.json:ro
+      - ./debezium/users-connector-registration.json:/config/users-connector-registration.json:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until curl -fsS http://connect:8083/connectors >/dev/null; do
+          sleep 2
+        done
+        while true; do
+          status="$$(curl -sS -o /tmp/connect.out -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' \
+            --data @/config/users-connector-registration.json \
+            http://connect:8083/connectors || true)"
+          case "$${status}" in
+            2??)
+              break
+              ;;
+          esac
+          if [ "$${status}" = "409" ]; then
+            status="$$(curl -sS -o /tmp/connect.out -w '%{http_code}' -X PUT \
+              -H 'Content-Type: application/json' \
+              --data @/config/users-connector.json \
+              http://connect:8083/connectors/users-connector/config || true)"
+            case "$${status}" in
+              2??)
+                break
+                ;;
+            esac
+          fi
+          if [ -s /tmp/connect.out ]; then
+            cat /tmp/connect.out
+          fi
+          sleep 5
+        done
+        echo "Debezium connector is configured."
+    restart: "no"
+
+volumes:
+  etcd-data:
+  postgres1-data:
+  postgres2-data:

@@ -1,0 +1,29 @@
+{
+  "name": "users-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "haproxy",
+    "database.port": "5000",
+    "database.user": "debezium",
+    "database.password": "dbz_password",
+    "database.dbname": "test",
+    "database.server.name": "dbserver1",
+    "topic.prefix": "dbserver1",
+    "plugin.name": "pgoutput",
+    "publication.name": "dbz_publication",
+    "publication.autocreate.mode": "disabled",
+    "slot.name": "dbz_users_slot",
+    "slot.drop.on.stop": "false",
+    "schema.include.list": "public",
+    "table.include.list": "public.users",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
+    "schema.history.internal.kafka.topic": "schema-changes.test",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "tombstones.on.delete": "false",
+    "decimal.handling.mode": "string"
+  }
+}
