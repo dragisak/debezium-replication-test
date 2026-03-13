@@ -30,7 +30,8 @@ bootstrap:
         type: physical
       postgres2:
         type: physical
-      ${REPLICATION_SLOT_NAME}:
+    ignore_slots:
+      - name: ${REPLICATION_SLOT_NAME}
         type: logical
         database: ${APP_DB}
         plugin: pgoutput
@@ -73,7 +74,10 @@ postgresql:
       username: ${REPLICATION_USER}
       password: ${REPLICATION_PASSWORD}
   parameters:
+    hot_standby_feedback: "on"
     password_encryption: scram-sha-256
+    sync_replication_slots: "true"
+    synchronized_standby_slots: "${SYNC_STANDBY_SLOT_NAME}"
     unix_socket_directories: /var/run/postgresql
 
 tags:

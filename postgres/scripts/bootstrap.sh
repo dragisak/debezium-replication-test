@@ -43,4 +43,10 @@ BEGIN
   END IF;
 END
 \$\$;
+
+SELECT format(
+  'SELECT pg_create_logical_replication_slot(%L, ''pgoutput'', false, false, true);',
+  '${REPLICATION_SLOT_NAME}'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '${REPLICATION_SLOT_NAME}')\gexec
 SQL
