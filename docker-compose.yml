@@ -51,6 +51,7 @@ services:
       DEBEZIUM_PASSWORD: dbz_password
       PUBLICATION_NAME: dbz_publication
       REPLICATION_SLOT_NAME: dbz_users_slot
+      SYNC_STANDBY_SLOT_NAME: postgres2
     volumes:
       - postgres1-data:/var/lib/postgresql/data
       - ./postgres/scripts:/scripts:ro
@@ -88,6 +89,7 @@ services:
       DEBEZIUM_PASSWORD: dbz_password
       PUBLICATION_NAME: dbz_publication
       REPLICATION_SLOT_NAME: dbz_users_slot
+      SYNC_STANDBY_SLOT_NAME: postgres1
     volumes:
       - postgres2-data:/var/lib/postgresql/data
       - ./postgres/scripts:/scripts:ro

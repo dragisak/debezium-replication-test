@@ -44,6 +44,7 @@ docker compose logs -f connect-init
 
 When setup is complete, you should see `Debezium connector is configured.` in the logs.
 The first boot can take around a minute while Patroni initializes the leader and clones the standby.
+If you are switching between Patroni-managed logical slots and PostgreSQL failover slots, re-bootstrap the cluster with `docker compose down -v` before starting it again because Patroni bootstrap DCS settings are only applied on first initialization.
 
 ## Verify PostgreSQL replication
 
@@ -117,6 +118,8 @@ Debezium should continue publishing new change events after the promotion window
 
 - PgBouncer is used for normal SQL traffic only.
 - Debezium connects through HAProxy instead of PgBouncer because PostgreSQL logical replication is not compatible with PgBouncer pooling.
-- Patroni manages the Debezium logical slot as a permanent slot so it can survive leader promotion.
+- Patroni manages only the inter-node physical slots. Debezium creates a PostgreSQL failover slot (`slot.failover=true`) and the standby keeps it synchronized via `sync_replication_slots`.
+- `synchronized_standby_slots` makes logical decoding wait for the physical standby slot to confirm WAL receipt. That is what keeps the failover slot safe across promotion, but it also means Debezium can stall if the standby is unavailable.
+- This native failover-slot configuration is still experimental in this repo. Local validation on March 13, 2026 showed Debezium capturing changes before failover but failing to resume cleanly after Patroni promoted the standby.
 - PostgreSQL durability is tuned for local development (`fsync=off`, `full_page_writes=off`, `synchronous_commit=off`) so the standby clone and failover loop stay responsive on a laptop.
 - To reset everything, run `docker compose down -v`.

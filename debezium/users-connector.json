@@ -12,6 +12,7 @@
   "publication.name": "dbz_publication",
   "publication.autocreate.mode": "disabled",
   "slot.name": "dbz_users_slot",
+  "slot.failover": "true",
   "slot.drop.on.stop": "false",
   "schema.include.list": "public",
   "table.include.list": "public.users",
