@@ -2,9 +2,31 @@
 set -euo pipefail
 
 mkdir -p /var/lib/postgresql/data
+mkdir -p "${PGBACKREST_REPO_PATH:-/var/lib/pgbackrest}"
+mkdir -p /tmp/pgbackrest
+mkdir -p /var/log/pgbackrest
+mkdir -p /var/spool/pgbackrest
 mkdir -p /var/run/postgresql
 chown -R postgres:postgres /var/lib/postgresql
 chown -R postgres:postgres /var/run/postgresql
+chown -R postgres:postgres "${PGBACKREST_REPO_PATH:-/var/lib/pgbackrest}"
+chown -R postgres:postgres /tmp/pgbackrest
+chown -R postgres:postgres /var/log/pgbackrest
+chown -R postgres:postgres /var/spool/pgbackrest
+
+cat >/etc/pgbackrest.conf <<EOF
+[global]
+lock-path=/tmp/pgbackrest
+log-path=/var/log/pgbackrest
+repo1-path=${PGBACKREST_REPO_PATH:-/var/lib/pgbackrest}
+repo1-retention-full=2
+spool-path=/var/spool/pgbackrest
+start-fast=y
+
+[${PGBACKREST_STANZA:-patroni-demo}]
+pg1-path=/var/lib/postgresql/data/pgdata
+pg1-port=5432
+EOF
 
 cat >/tmp/patroni.yml <<EOF
 scope: ${CLUSTER_NAME:-pg-ha-demo}
@@ -38,6 +60,9 @@ bootstrap:
       use_pg_rewind: false
       use_slots: true
       parameters:
+        archive_command: 'pgbackrest --stanza=${PGBACKREST_STANZA:-patroni-demo} archive-push %p'
+        archive_mode: "on"
+        archive_timeout: 60s
         fsync: "off"
         full_page_writes: "off"
         wal_level: logical
