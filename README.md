@@ -17,7 +17,7 @@ Current image/runtime versions:
 - etcd `3.6.8`
 - HAProxy `3.2-alpine`
 - Confluent Kafka `8.2.0` in KRaft mode
-- Debezium Connect `3.4.2.Final`
+- Debezium Connect `3.5.0.Final`
 - pgBackRest from the Debian package in `postgres:18.1`
 
 ## Services

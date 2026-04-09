@@ -156,7 +156,7 @@ services:
       - "29092:29092"
 
   connect:
-    image: quay.io/debezium/connect:3.4.2.Final
+    image: quay.io/debezium/connect:3.5.0.Final
     depends_on:
       - kafka
       - haproxy
