@@ -51,8 +51,11 @@ services:
       DEBEZIUM_PASSWORD: dbz_password
       PUBLICATION_NAME: dbz_publication
       REPLICATION_SLOT_NAME: dbz_users_slot
+      PGBACKREST_STANZA: patroni-demo
+      PGBACKREST_REPO_PATH: /var/lib/pgbackrest
     volumes:
       - postgres1-data:/var/lib/postgresql/data
+      - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
     depends_on:
       etcd:
@@ -88,8 +91,11 @@ services:
       DEBEZIUM_PASSWORD: dbz_password
       PUBLICATION_NAME: dbz_publication
       REPLICATION_SLOT_NAME: dbz_users_slot
+      PGBACKREST_STANZA: patroni-demo
+      PGBACKREST_REPO_PATH: /var/lib/pgbackrest
     volumes:
       - postgres2-data:/var/lib/postgresql/data
+      - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
     depends_on:
       etcd:
@@ -230,3 +236,4 @@ volumes:
   etcd-data:
   postgres1-data:
   postgres2-data:
+  pgbackrest-repo:

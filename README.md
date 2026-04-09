@@ -6,6 +6,7 @@ This repository starts a local stack with:
 - One writable leader and one hot standby replica
 - HAProxy routing to the current PostgreSQL leader
 - PgBouncer as the stable SQL endpoint for clients
+- pgBackRest installed on both PostgreSQL nodes with a shared local backup repository
 - Single-node Kafka in KRaft mode and Kafka Connect with Debezium
 - A `test.public.users` table whose changes are published to Kafka as schema-less JSON
 
@@ -17,6 +18,7 @@ Current image/runtime versions:
 - HAProxy `3.2-alpine`
 - Confluent Kafka `8.2.0` in KRaft mode
 - Debezium Connect `3.4.2.Final`
+- pgBackRest from the Debian package in `postgres:18.1`
 
 ## Services
 
@@ -44,6 +46,39 @@ docker compose logs -f connect-init
 
 When setup is complete, you should see `Debezium connector is configured.` in the logs.
 The first boot can take around a minute while Patroni initializes the leader and clones the standby.
+
+## Initialize pgBackRest on the current primary
+
+Check which Patroni node is the leader:
+
+```bash
+curl http://localhost:8008/cluster
+curl http://localhost:8009/cluster
+```
+
+Run `stanza-create` and `check` on the leader container. Replace `postgres1` with `postgres2` if the second node is primary:
+
+```bash
+docker compose exec postgres1 \
+  pgbackrest --stanza=patroni-demo --log-level-console=info stanza-create
+
+docker compose exec postgres1 \
+  pgbackrest --stanza=patroni-demo --log-level-console=info check
+```
+
+Create a full backup of the primary database:
+
+```bash
+docker compose exec postgres1 \
+  pgbackrest --stanza=patroni-demo --type=full --log-level-console=info backup
+```
+
+List the backups stored in the shared repository volume:
+
+```bash
+docker compose exec postgres1 \
+  pgbackrest --stanza=patroni-demo --output=json info
+```
 
 ## Verify PostgreSQL replication
 
@@ -118,5 +153,6 @@ Debezium should continue publishing new change events after the promotion window
 - PgBouncer is used for normal SQL traffic only.
 - Debezium connects through HAProxy instead of PgBouncer because PostgreSQL logical replication is not compatible with PgBouncer pooling.
 - Patroni manages the Debezium logical slot as a permanent slot so it can survive leader promotion.
+- pgBackRest is configured via `/etc/pgbackrest.conf` inside each PostgreSQL container and stores backups in the shared Docker volume mounted at `/var/lib/pgbackrest`.
 - PostgreSQL durability is tuned for local development (`fsync=off`, `full_page_writes=off`, `synchronous_commit=off`) so the standby clone and failover loop stay responsive on a laptop.
 - To reset everything, run `docker compose down -v`.
