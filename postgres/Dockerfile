@@ -1,4 +1,4 @@
-FROM postgres:18.1
+FROM postgres:18.4
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl pgbackrest python3 python3-pip \
