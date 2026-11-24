@@ -47,9 +47,8 @@ restapi:
   listen: 0.0.0.0:8008
   connect_address: ${RESTAPI_CONNECT_ADDRESS}
 
-etcd3:
-  hosts: ${ETCD_ENDPOINTS}
-  protocol: http
+zookeeper:
+  hosts: [${ZOOKEEPER_ENDPOINTS}]
 
 bootstrap:
   dcs:

@@ -2,7 +2,7 @@
 
 ## Repo overview
 - This repository provides a local Debezium replication test stack built with `docker compose`.
-- The stack includes Patroni-managed PostgreSQL nodes, `etcd`, HAProxy, PgBouncer, Kafka, and Kafka Connect.
+- The stack includes Patroni-managed PostgreSQL nodes, ZooKeeper, HAProxy, PgBouncer, Kafka, and Kafka Connect.
 - The main workflow is: start the stack, wait for connector registration, write to `public.users`, and verify Debezium events.
 
 ## Important files
