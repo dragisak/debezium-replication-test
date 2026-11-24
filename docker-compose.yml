@@ -1,61 +1,58 @@
-x-etcd-common: &etcd-common
-  image: quay.io/coreos/etcd:v3.7.4
-  environment: &etcd-environment
-    ETCD_DATA_DIR: /etcd-data
-    ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
-    ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
-    ETCD_INITIAL_CLUSTER: ${ETCD_INITIAL_CLUSTER:-etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380}
-    ETCD_INITIAL_CLUSTER_TOKEN: patroni
-    ETCD_INITIAL_CLUSTER_STATE: ${ETCD_INITIAL_CLUSTER_STATE:-new}
+name: debezium-replication-zookeeper
+
+x-zookeeper-common: &zookeeper-common
+  image: zookeeper:3.9.7
+  environment: &zookeeper-environment
+    ZOO_SERVERS: >-
+      server.1=zookeeper1:2888:3888;2181
+      server.2=zookeeper2:2888:3888;2181
+      server.3=zookeeper3:2888:3888;2181
   healthcheck:
-    test: ["CMD", "/usr/local/bin/etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health"]
+    test: ["CMD", "zkServer.sh", "status"]
     interval: 5s
     timeout: 5s
     retries: 12
     start_period: 5s
 
 services:
-  etcd0:
-    <<: *etcd-common
+  zookeeper1:
+    <<: *zookeeper-common
     environment:
-      <<: *etcd-environment
-      ETCD_NAME: etcd0
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd0:2379
-      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd0:2380
+      <<: *zookeeper-environment
+      ZOO_MY_ID: "1"
     volumes:
-      - etcd-data:/etcd-data
+      - zookeeper1-data:/data
+      - zookeeper1-datalog:/datalog
     ports:
-      - "2379:2379"
+      - "2181:2181"
 
-  etcd1:
-    <<: *etcd-common
+  zookeeper2:
+    <<: *zookeeper-common
     environment:
-      <<: *etcd-environment
-      ETCD_NAME: etcd1
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd1:2379
-      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd1:2380
+      <<: *zookeeper-environment
+      ZOO_MY_ID: "2"
     volumes:
-      - etcd1-data:/etcd-data
+      - zookeeper2-data:/data
+      - zookeeper2-datalog:/datalog
 
-  etcd2:
-    <<: *etcd-common
+  zookeeper3:
+    <<: *zookeeper-common
     environment:
-      <<: *etcd-environment
-      ETCD_NAME: etcd2
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd2:2379
-      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd2:2380
+      <<: *zookeeper-environment
+      ZOO_MY_ID: "3"
     volumes:
-      - etcd2-data:/etcd-data
+      - zookeeper3-data:/data
+      - zookeeper3-datalog:/datalog
 
   postgres1:
-    image: debezium-replication-test-patroni-postgres:latest
+    image: debezium-replication-zookeeper-patroni-postgres:latest
     build:
       context: ./postgres
     hostname: postgres1
     environment:
       CLUSTER_NAME: pg-ha-demo
       NODE_NAME: postgres1
-      ETCD_ENDPOINTS: etcd0:2379,etcd1:2379,etcd2:2379
+      ZOOKEEPER_ENDPOINTS: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
       RESTAPI_CONNECT_ADDRESS: postgres1:8008
       POSTGRES_CONNECT_ADDRESS: postgres1:5432
       POSTGRES_SUPERUSER_PASSWORD: postgres
@@ -74,7 +71,7 @@ services:
       - postgres1-data:/var/lib/postgresql/data
       - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
-    depends_on: [etcd0, etcd1, etcd2]
+    depends_on: [zookeeper1, zookeeper2, zookeeper3]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
       interval: 10s
@@ -86,14 +83,14 @@ services:
       - "8008:8008"
 
   postgres2:
-    image: debezium-replication-test-patroni-postgres:latest
+    image: debezium-replication-zookeeper-patroni-postgres:latest
     build:
       context: ./postgres
     hostname: postgres2
     environment:
       CLUSTER_NAME: pg-ha-demo
       NODE_NAME: postgres2
-      ETCD_ENDPOINTS: etcd0:2379,etcd1:2379,etcd2:2379
+      ZOOKEEPER_ENDPOINTS: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
       RESTAPI_CONNECT_ADDRESS: postgres2:8008
       POSTGRES_CONNECT_ADDRESS: postgres2:5432
       POSTGRES_SUPERUSER_PASSWORD: postgres
@@ -112,7 +109,7 @@ services:
       - postgres2-data:/var/lib/postgresql/data
       - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
-    depends_on: [etcd0, etcd1, etcd2]
+    depends_on: [zookeeper1, zookeeper2, zookeeper3]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
       interval: 10s
@@ -246,9 +243,12 @@ services:
     restart: "no"
 
 volumes:
-  etcd-data:
-  etcd1-data:
-  etcd2-data:
+  zookeeper1-data:
+  zookeeper1-datalog:
+  zookeeper2-data:
+  zookeeper2-datalog:
+  zookeeper3-data:
+  zookeeper3-datalog:
   postgres1-data:
   postgres2-data:
   pgbackrest-repo:

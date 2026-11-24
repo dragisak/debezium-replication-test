@@ -2,7 +2,7 @@
 
 This repository starts a local stack with:
 
-- Two PostgreSQL nodes managed by Patroni and backed by a three-member etcd cluster
+- Two PostgreSQL nodes managed by Patroni and backed by a three-member ZooKeeper ensemble
 - One writable leader and one hot standby replica
 - HAProxy routing to the current PostgreSQL leader
 - PgBouncer as the stable SQL endpoint for clients
@@ -14,7 +14,7 @@ Current image and runtime versions
 
 - PostgreSQL `19`
 - Patroni `4.1.5`
-- etcd `3.7.4`
+- Apache ZooKeeper `3.9.7`
 - HAProxy `3.2-alpine`
 - Confluent Kafka `8.4.1` in KRaft mode
 - Debezium Connect `3.7.1.Final`
@@ -24,8 +24,8 @@ Current image and runtime versions
 
 | Service | Purpose | Host Port |
 | --- | --- | --- |
-| `etcd0` | etcd member with a published client port | `2379` |
-| `etcd1`, `etcd2` | Additional etcd members | Internal only |
+| `zookeeper1` | ZooKeeper member with a published client port | `2181` |
+| `zookeeper2`, `zookeeper3` | Additional ZooKeeper members | Internal only |
 | `postgres1` | Patroni PostgreSQL node and REST API | `5433`, `8008` |
 | `postgres2` | Patroni PostgreSQL node and REST API | `5434`, `8009` |
 | `haproxy` | Leader-aware PostgreSQL endpoint | `5000` (override with `HAPROXY_HOST_PORT`) |
@@ -36,17 +36,9 @@ Current image and runtime versions
 
 ## Start the stack
 
-If you have PostgreSQL 18 volumes, stop that stack before starting PostgreSQL 19 on the same ports. To start a fresh cluster and keep the old volumes, select a new Compose project in the shell where you run the commands below. To carry over the old data, follow the [PostgreSQL major-version upgrade guide](https://www.postgresql.org/docs/19/upgrading.html).
-
-```bash
-export COMPOSE_PROJECT_NAME=debezium-replication-pg19
-```
+This branch starts a fresh cluster in the `debezium-replication-zookeeper` Compose project, with separate PostgreSQL and ZooKeeper volumes. Stop any existing stack that publishes the same ports before starting it.
 
 If host port `5000` is already in use, for example by AirPlay Receiver on macOS, run `export HAPROXY_HOST_PORT=15000` in that shell.
-
-If this Compose project already has a single-member etcd cluster, select a fresh Compose project or expand the existing cluster before starting the full stack. To keep its data, take an etcd snapshot and use `etcdctl` in the original `etcd` container to [add and promote each new member as a learner](https://etcd.io/docs/v3.7/op-guide/runtime-configuration/#add-a-new-member-as-learner), one at a time. Use peer URLs `http://etcd1:2380` and `http://etcd2:2380`. Start each new service with `docker compose up -d --no-deps <service>` and set `ETCD_INITIAL_CLUSTER_STATE` and `ETCD_INITIAL_CLUSTER` to the values printed by `etcdctl member add` for that invocation.
-
-Once all three members are voting, use `etcdctl member update` to change `etcd0`'s peer URL to `http://etcd0:2380`. Stop the original `etcd` container, then start the `etcd0` service with `docker compose up -d --no-deps etcd0`. It uses the existing `etcd-data` volume. Verify all three members are healthy, then rerun `up -d --no-deps` for `etcd1` and `etcd2` without the join variables, one at a time. Wait for each member to become healthy before continuing. Then start the full stack with the command below.
 
 ```bash
 docker compose up -d --build
@@ -67,27 +59,28 @@ Check that the connector and its task both report `RUNNING`.
 curl -fsS http://localhost:8083/connectors/users-connector/status
 ```
 
-## Verify etcd quorum
+## Verify ZooKeeper quorum
 
 Check the status of all three members.
 
 ```bash
-docker compose exec etcd0 /usr/local/bin/etcdctl \
-  --endpoints=http://etcd0:2379,http://etcd1:2379,http://etcd2:2379 endpoint status --write-out=table
+for member in zookeeper1 zookeeper2 zookeeper3; do
+  docker compose exec -T "$member" zkServer.sh status
+done
 ```
 
-Record the current PostgreSQL primary with `curl -fsS http://localhost:8008/cluster`. Stop the member whose `IS LEADER` column is `true`, then check that the other two still have quorum. This example assumes `etcd0` is the etcd leader.
+Record the current PostgreSQL primary with `curl -fsS http://localhost:8008/cluster`. Stop the ZooKeeper member that reports `Mode: leader`, then check that the other two elect a leader. This example assumes `zookeeper1` is the ZooKeeper leader.
 
 ```bash
-docker compose stop etcd0
-docker compose exec etcd1 /usr/local/bin/etcdctl \
-  --endpoints=http://etcd1:2379,http://etcd2:2379 endpoint health
+docker compose stop zookeeper1
+docker compose exec zookeeper2 zkServer.sh status
+docker compose exec zookeeper3 zkServer.sh status
 ```
 
-Wait at least 30 seconds with the member stopped. Check that Patroni still reports the same PostgreSQL primary and try a write through PgBouncer. Then start the stopped etcd member again.
+Wait at least 30 seconds with the member stopped. Check that Patroni still reports the same PostgreSQL primary and try a write through PgBouncer. Then start the stopped ZooKeeper member again.
 
 ```bash
-docker compose start etcd0
+docker compose start zookeeper1
 ```
 
 ## Initialize pgBackRest on the current primary
