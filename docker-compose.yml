@@ -1,34 +1,51 @@
+x-etcd-common: &etcd-common
+  image: quay.io/coreos/etcd:v3.7.4
+  environment: &etcd-environment
+    ETCD_DATA_DIR: /etcd-data
+    ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+    ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+    ETCD_INITIAL_CLUSTER: ${ETCD_INITIAL_CLUSTER:-etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380}
+    ETCD_INITIAL_CLUSTER_TOKEN: patroni
+    ETCD_INITIAL_CLUSTER_STATE: ${ETCD_INITIAL_CLUSTER_STATE:-new}
+  healthcheck:
+    test: ["CMD", "/usr/local/bin/etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 5s
+
 services:
-  etcd:
-    image: quay.io/coreos/etcd:v3.7.4
-    command:
-      - /usr/local/bin/etcd
-      - --name=etcd0
-      - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd:2380
-      - --initial-cluster=etcd0=http://etcd:2380
-      - --initial-cluster-token=patroni
-      - --initial-cluster-state=new
+  etcd0:
+    <<: *etcd-common
+    environment:
+      <<: *etcd-environment
+      ETCD_NAME: etcd0
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd0:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd0:2380
     volumes:
       - etcd-data:/etcd-data
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "/usr/local/bin/etcdctl",
-          "--endpoints=http://127.0.0.1:2379",
-          "endpoint",
-          "health",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 5s
     ports:
       - "2379:2379"
+
+  etcd1:
+    <<: *etcd-common
+    environment:
+      <<: *etcd-environment
+      ETCD_NAME: etcd1
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd1:2380
+    volumes:
+      - etcd1-data:/etcd-data
+
+  etcd2:
+    <<: *etcd-common
+    environment:
+      <<: *etcd-environment
+      ETCD_NAME: etcd2
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd2:2380
+    volumes:
+      - etcd2-data:/etcd-data
 
   postgres1:
     image: debezium-replication-test-patroni-postgres:latest
@@ -38,7 +55,7 @@ services:
     environment:
       CLUSTER_NAME: pg-ha-demo
       NODE_NAME: postgres1
-      ETCD_ENDPOINT: etcd:2379
+      ETCD_ENDPOINTS: etcd0:2379,etcd1:2379,etcd2:2379
       RESTAPI_CONNECT_ADDRESS: postgres1:8008
       POSTGRES_CONNECT_ADDRESS: postgres1:5432
       POSTGRES_SUPERUSER_PASSWORD: postgres
@@ -57,9 +74,7 @@ services:
       - postgres1-data:/var/lib/postgresql/data
       - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
-    depends_on:
-      etcd:
-        condition: service_healthy
+    depends_on: [etcd0, etcd1, etcd2]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
       interval: 10s
@@ -78,7 +93,7 @@ services:
     environment:
       CLUSTER_NAME: pg-ha-demo
       NODE_NAME: postgres2
-      ETCD_ENDPOINT: etcd:2379
+      ETCD_ENDPOINTS: etcd0:2379,etcd1:2379,etcd2:2379
       RESTAPI_CONNECT_ADDRESS: postgres2:8008
       POSTGRES_CONNECT_ADDRESS: postgres2:5432
       POSTGRES_SUPERUSER_PASSWORD: postgres
@@ -97,9 +112,7 @@ services:
       - postgres2-data:/var/lib/postgresql/data
       - pgbackrest-repo:/var/lib/pgbackrest
       - ./postgres/scripts:/scripts:ro
-    depends_on:
-      etcd:
-        condition: service_healthy
+    depends_on: [etcd0, etcd1, etcd2]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health >/dev/null"]
       interval: 10s
@@ -234,6 +247,8 @@ services:
 
 volumes:
   etcd-data:
+  etcd1-data:
+  etcd2-data:
   postgres1-data:
   postgres2-data:
   pgbackrest-repo:

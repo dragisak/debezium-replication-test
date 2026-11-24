@@ -48,7 +48,7 @@ restapi:
   connect_address: ${RESTAPI_CONNECT_ADDRESS}
 
 etcd3:
-  host: ${ETCD_ENDPOINT}
+  hosts: ${ETCD_ENDPOINTS}
   protocol: http
 
 bootstrap:
