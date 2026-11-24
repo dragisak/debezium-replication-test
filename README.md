@@ -10,29 +10,38 @@ This repository starts a local stack with:
 - Single-node Kafka in KRaft mode and Kafka Connect with Debezium
 - A `test.public.users` table whose changes are published to Kafka as schema-less JSON
 
-Current image/runtime versions:
+Current image and runtime versions
 
-- PostgreSQL `18.1`
-- Patroni `4.1.0`
-- etcd `3.6.8`
+- PostgreSQL `19`
+- Patroni `4.1.5`
+- etcd `3.7.4`
 - HAProxy `3.2-alpine`
-- Confluent Kafka `8.2.0` in KRaft mode
-- Debezium Connect `3.5.0.Final`
-- pgBackRest from the Debian package in `postgres:18.1`
+- Confluent Kafka `8.4.1` in KRaft mode
+- Debezium Connect `3.7.1.Final`
+- pgBackRest from the APT repository configured in `postgres:19`
 
 ## Services
 
 | Service | Purpose | Host Port |
 | --- | --- | --- |
-| `postgres1` | Patroni PostgreSQL node | `5433` |
-| `postgres2` | Patroni PostgreSQL node | `5434` |
-| `haproxy` | Leader-aware PostgreSQL endpoint | `5000` |
+| `etcd` | Patroni cluster state | `2379` |
+| `postgres1` | Patroni PostgreSQL node and REST API | `5433`, `8008` |
+| `postgres2` | Patroni PostgreSQL node and REST API | `5434`, `8009` |
+| `haproxy` | Leader-aware PostgreSQL endpoint | `5000` (override with `HAPROXY_HOST_PORT`) |
 | `pgbouncer` | Client SQL endpoint | `6432` |
 | `kafka` | Kafka broker | `29092` |
 | `connect` | Kafka Connect REST API | `8083` |
 | `haproxy` stats | HAProxy dashboard | `8404` |
 
 ## Start the stack
+
+If you have PostgreSQL 18 volumes, stop that stack before starting PostgreSQL 19 on the same ports. To start a fresh cluster and keep the old volumes, select a new Compose project in the shell where you run the commands below. To carry over the old data, follow the [PostgreSQL major-version upgrade guide](https://www.postgresql.org/docs/19/upgrading.html).
+
+```bash
+export COMPOSE_PROJECT_NAME=debezium-replication-pg19
+```
+
+If host port `5000` is already in use, for example by AirPlay Receiver on macOS, run `export HAPROXY_HOST_PORT=15000` in that shell.
 
 ```bash
 docker compose up -d --build
@@ -44,8 +53,14 @@ Wait until the connector is registered:
 docker compose logs -f connect-init
 ```
 
-When setup is complete, you should see `Debezium connector is configured.` in the logs.
+When the connector is registered, you should see `Debezium connector is configured.` in the logs.
 The first boot can take around a minute while Patroni initializes the leader and clones the standby.
+
+Check that the connector and its task both report `RUNNING`.
+
+```bash
+curl -fsS http://localhost:8083/connectors/users-connector/status
+```
 
 ## Initialize pgBackRest on the current primary
 
@@ -56,27 +71,27 @@ curl http://localhost:8008/cluster
 curl http://localhost:8009/cluster
 ```
 
-Run `stanza-create` and `check` on the leader container. Replace `postgres1` with `postgres2` if the second node is primary:
+Run `stanza-create` and `check` as `postgres` on the leader container. Replace `postgres1` with `postgres2` if the second node is primary. Initial WAL archiving waits for the stanza to exist.
 
 ```bash
-docker compose exec postgres1 \
+docker compose exec -u postgres postgres1 \
   pgbackrest --stanza=patroni-demo --log-level-console=info stanza-create
 
-docker compose exec postgres1 \
+docker compose exec -u postgres postgres1 \
   pgbackrest --stanza=patroni-demo --log-level-console=info check
 ```
 
 Create a full backup of the primary database:
 
 ```bash
-docker compose exec postgres1 \
+docker compose exec -u postgres postgres1 \
   pgbackrest --stanza=patroni-demo --type=full --log-level-console=info backup
 ```
 
 List the backups stored in the shared repository volume:
 
 ```bash
-docker compose exec postgres1 \
+docker compose exec -u postgres postgres1 \
   pgbackrest --stanza=patroni-demo --output=json info
 ```
 
@@ -89,7 +104,7 @@ curl http://localhost:8008/cluster
 curl http://localhost:8009/cluster
 ```
 
-One node should report `Leader` and the other should report `Replica`.
+Each endpoint should show one `leader` and one `replica` in the `members` list. A ready replica reports `state: streaming`.
 
 ## Write through PgBouncer
 
@@ -101,7 +116,7 @@ docker compose exec pgbouncer \
   -c "INSERT INTO public.users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
 ```
 
-Read the replicated table directly from the standby:
+Read the replicated table directly from the standby. Replace `postgres2` with `postgres1` if the first node is the replica.
 
 ```bash
 docker compose exec postgres2 \
@@ -126,7 +141,7 @@ After inserting or updating rows in `test.public.users`, you should see JSON mes
 
 ## Test failover
 
-Stop the current leader:
+Stop the current leader. This example assumes `postgres1` is the leader.
 
 ```bash
 docker compose stop postgres1
@@ -147,6 +162,13 @@ docker compose exec pgbouncer \
 ```
 
 Debezium should continue publishing new change events after the promotion window.
+
+Start the former leader again and check that it rejoins as a streaming replica.
+
+```bash
+docker compose start postgres1
+curl http://localhost:8009/cluster
+```
 
 ## Notes
 

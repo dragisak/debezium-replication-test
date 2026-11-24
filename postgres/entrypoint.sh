@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+data_dir=/var/lib/postgresql/data/pgdata
+if [ -f "$data_dir/PG_VERSION" ]; then
+  data_major=$(cat "$data_dir/PG_VERSION")
+  if [ "$data_major" != "$PG_MAJOR" ]; then
+    printf 'PostgreSQL %s cannot start with PostgreSQL %s data in %s. Migrate the data or use a fresh Compose project.\n' \
+      "$PG_MAJOR" "$data_major" "$data_dir" >&2
+    exit 1
+  fi
+fi
+
 mkdir -p /var/lib/postgresql/data
 mkdir -p "${PGBACKREST_REPO_PATH:-/var/lib/pgbackrest}"
 mkdir -p /tmp/pgbackrest
@@ -24,7 +34,7 @@ spool-path=/var/spool/pgbackrest
 start-fast=y
 
 [${PGBACKREST_STANZA:-patroni-demo}]
-pg1-path=/var/lib/postgresql/data/pgdata
+pg1-path=${data_dir}
 pg1-port=5432
 EOF
 
@@ -83,8 +93,8 @@ bootstrap:
 postgresql:
   listen: 0.0.0.0:5432
   connect_address: ${POSTGRES_CONNECT_ADDRESS}
-  data_dir: /var/lib/postgresql/data/pgdata
-  bin_dir: /usr/lib/postgresql/18/bin
+  data_dir: ${data_dir}
+  bin_dir: /usr/lib/postgresql/${PG_MAJOR}/bin
   pgpass: /tmp/pgpass
   create_replica_methods:
     - basebackup
